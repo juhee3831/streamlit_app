@@ -2,39 +2,104 @@ import streamlit as st
 import pandas as pd
 import pydeck as pdk
 
-st.set_page_config(
-    page_title="공영주차장 안내",
-    layout="wide"
-)
+st.set_page_config(page_title="공영주차장 안내", layout="wide")
 
-st.title("🅿 공영주차장 정보 안내")
-
-st.write("CSV 파일을 업로드하세요.")
+st.title("🅿 공영주차장 정보 서비스")
 
 uploaded_file = st.file_uploader(
-    "CSV 업로드",
-    type=["csv"]
+    "CSV 또는 Excel 파일 업로드",
+    type=["csv", "xlsx"]
 )
 
-if uploaded_file is not None:
+# ----------------------------
+# 파일 읽기
+# ----------------------------
+def load_file(file):
 
-    df = pd.read_csv(uploaded_file)
+    if file.name.endswith(".xlsx"):
+        return pd.read_excel(file)
 
-    st.success("데이터 업로드 완료")
+    encodings = [
+        "utf-8",
+        "utf-8-sig",
+        "cp949",
+        "euc-kr"
+    ]
 
-    st.subheader("데이터 미리보기")
+    for enc in encodings:
+        try:
+            file.seek(0)
+            return pd.read_csv(file, encoding=enc)
+        except Exception:
+            continue
+
+    raise Exception("파일을 읽을 수 없습니다.")
+
+# ----------------------------
+# 컬럼 자동 찾기
+# ----------------------------
+def find_column(df, keywords):
+
+    for col in df.columns:
+        for key in keywords:
+            if key in col:
+                return col
+    return None
+
+
+if uploaded_file:
+
+    try:
+
+        df = load_file(uploaded_file)
+
+    except Exception as e:
+
+        st.error(str(e))
+        st.stop()
+
+    st.success("파일을 성공적으로 읽었습니다.")
+
+    st.subheader("데이터")
+
     st.dataframe(df)
 
-    st.markdown("---")
+    # 컬럼 자동 검색
+
+    name_col = find_column(df, ["주차장"])
+
+    addr_col = find_column(df, ["주소"])
+
+    fee_col = find_column(df, ["요금"])
+
+    lat_col = find_column(df, ["위도"])
+
+    lon_col = find_column(df, ["경도"])
+
+    # 컬럼 확인
+
+    if None in [name_col, addr_col, fee_col]:
+
+        st.error("주차장명, 주소, 요금 컬럼을 찾을 수 없습니다.")
+
+        st.write(df.columns)
+
+        st.stop()
+
+    # ----------------------------
 
     st.subheader("주소 검색")
 
-    keyword = st.text_input("주소를 입력하세요")
+    keyword = st.text_input("주소 입력")
 
-    if keyword != "":
-        result = df[df["주소"].str.contains(keyword, case=False, na=False)]
+    if keyword:
+
+        result = df[
+            df[addr_col].astype(str).str.contains(keyword, na=False)
+        ]
 
         if len(result) == 0:
+
             st.warning("검색 결과가 없습니다.")
 
         else:
@@ -42,51 +107,67 @@ if uploaded_file is not None:
             st.success(f"{len(result)}개의 주차장을 찾았습니다.")
 
             st.dataframe(
-                result[["주차장명", "주소", "주차요금"]]
+                result[
+                    [
+                        name_col,
+                        addr_col,
+                        fee_col
+                    ]
+                ]
             )
 
-    st.markdown("---")
+    # ----------------------------
 
-    st.subheader("공영주차장 지도")
+    if lat_col and lon_col:
 
-    # 지도 표시를 위해 위도/경도가 있어야 함
-    # CSV에는 반드시 아래 컬럼이 있어야 함.
-    #
-    # 위도
-    # 경도
+        st.subheader("주차장 지도")
 
-    layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=df,
-        get_position='[경도, 위도]',
-        get_radius=40,
-        get_fill_color='[255,0,0,180]',
-        pickable=True,
-    )
+        df[lat_col] = pd.to_numeric(df[lat_col], errors="coerce")
+        df[lon_col] = pd.to_numeric(df[lon_col], errors="coerce")
 
-    view_state = pdk.ViewState(
-        latitude=df["위도"].mean(),
-        longitude=df["경도"].mean(),
-        zoom=12,
-        pitch=0,
-    )
+        df = df.dropna(subset=[lat_col, lon_col])
 
-    tooltip = {
-        "html": """
-        <b>주차장</b> : {주차장명}<br/>
-        <b>주소</b> : {주소}<br/>
-        <b>주차요금</b> : {주차요금}
-        """,
-        "style": {
-            "backgroundColor": "steelblue",
-            "color": "white"
+        layer = pdk.Layer(
+            "ScatterplotLayer",
+            data=df,
+            get_position=f"[{lon_col}, {lat_col}]",
+            get_radius=60,
+            get_fill_color=[0, 128, 255, 180],
+            pickable=True,
+        )
+
+        view = pdk.ViewState(
+            latitude=df[lat_col].mean(),
+            longitude=df[lon_col].mean(),
+            zoom=12,
+        )
+
+        tooltip = {
+            "html": f"""
+            <b>주차장</b><br/>
+            {{{name_col}}}<br/><br/>
+
+            <b>주소</b><br/>
+            {{{addr_col}}}<br/><br/>
+
+            <b>요금</b><br/>
+            {{{fee_col}}}
+            """,
+
+            "style": {
+                "backgroundColor": "#2c3e50",
+                "color": "white"
+            }
         }
-    }
 
-    deck = pdk.Deck(
-        layers=[layer],
-        initial_view_state=view_state,
-        tooltip=tooltip,
-    )
+        st.pydeck_chart(
+            pdk.Deck(
+                layers=[layer],
+                initial_view_state=view,
+                tooltip=tooltip,
+            )
+        )
 
-    st.pydeck_chart(deck)
+    else:
+
+        st.warning("위도·경도 컬럼이 없어 지도를 표시할 수 없습니다.")
