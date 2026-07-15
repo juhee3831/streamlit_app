@@ -1,28 +1,44 @@
 import streamlit as st
 import pandas as pd
-import pydeck as pdk
+import folium
+from streamlit_folium import st_folium
 
-st.set_page_config(page_title="공영주차장 안내", layout="wide")
+st.set_page_config(
+    page_title="서울시 공영주차장 안내",
+    layout="wide"
+)
 
-st.title("🅿 공영주차장 정보 안내")
+st.title("🅿 서울시 공영주차장 정보")
+
+st.write("서울시 공영주차장 CSV 파일을 업로드하세요.")
 
 uploaded_file = st.file_uploader(
-    "공영주차장 CSV 업로드",
+    "CSV 파일",
     type=["csv"]
 )
 
+
+# -------------------------------
 # CSV 읽기
+# -------------------------------
 def load_csv(file):
-    encodings = ["utf-8", "utf-8-sig", "cp949", "euc-kr"]
+
+    encodings = [
+        "utf-8",
+        "utf-8-sig",
+        "cp949",
+        "euc-kr"
+    ]
 
     for enc in encodings:
         try:
             file.seek(0)
             return pd.read_csv(file, encoding=enc)
-        except:
-            continue
+        except Exception:
+            pass
 
-    raise Exception("CSV 파일을 읽을 수 없습니다.")
+    raise Exception("CSV를 읽을 수 없습니다.")
+
 
 if uploaded_file:
 
@@ -33,21 +49,24 @@ if uploaded_file:
         st.error(e)
         st.stop()
 
-    st.success("파일 업로드 완료!")
-
-    # 숫자형 변환
+    # 숫자 변환
     df["위도"] = pd.to_numeric(df["위도"], errors="coerce")
     df["경도"] = pd.to_numeric(df["경도"], errors="coerce")
 
     df = df.dropna(subset=["위도", "경도"])
 
-    st.subheader("주소 또는 주차장 검색")
+    st.success(f"총 {len(df)}개의 주차장 정보를 불러왔습니다.")
 
-    keyword = st.text_input("주소 또는 주차장명을 입력하세요")
+    st.subheader("🔍 주소 또는 주차장명 검색")
+
+    keyword = st.text_input(
+        "주소 또는 주차장명을 입력하세요"
+    )
 
     result = df
 
     if keyword:
+
         result = df[
             df["주소"].astype(str).str.contains(keyword, case=False, na=False)
             |
@@ -55,66 +74,68 @@ if uploaded_file:
         ]
 
     if len(result) == 0:
+
         st.warning("검색 결과가 없습니다.")
+        st.stop()
 
-    else:
+    st.subheader("검색 결과")
 
-        st.subheader("검색 결과")
-
-        st.dataframe(
-            result[
-                [
-                    "주차장명",
-                    "주소",
-                    "기본 주차 요금",
-                    "추가 단위 요금",
-                    "일 최대 요금",
-                    "총 주차면"
-                ]
+    st.dataframe(
+        result[
+            [
+                "주차장명",
+                "주소",
+                "기본 주차 요금",
+                "추가 단위 요금",
+                "일 최대 요금",
+                "총 주차면"
             ]
-        )
-
-    st.subheader("주차장 지도")
-
-    layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=result,
-        get_position="[경도, 위도]",
-        get_fill_color=[0, 120, 255, 180],
-        get_radius=60,
-        pickable=True
+        ],
+        use_container_width=True
     )
 
-    view = pdk.ViewState(
-        latitude=result["위도"].mean(),
-        longitude=result["경도"].mean(),
-        zoom=12
+    # -----------------------
+    # 지도 생성
+    # -----------------------
+
+    center_lat = result["위도"].mean()
+    center_lon = result["경도"].mean()
+
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=12
     )
 
-    tooltip = {
-        "html": """
-<b>{주차장명}</b><br>
+    for _, row in result.iterrows():
 
-주소 : {주소}<br>
+        popup = f"""
+        <b>{row['주차장명']}</b><br><br>
 
-기본요금 : {기본 주차 요금}원<br>
+        주소 : {row['주소']}<br>
 
-추가요금 : {추가 단위 요금}원<br>
+        기본요금 : {row['기본 주차 요금']}원<br>
 
-일 최대요금 : {일 최대 요금}원<br>
+        추가요금 : {row['추가 단위 요금']}원<br>
 
-주차면수 : {총 주차면}면
-""",
-        "style": {
-            "backgroundColor": "#1565C0",
-            "color": "white"
-        }
-    }
+        일 최대요금 : {row['일 최대 요금']}원<br>
 
-    st.pydeck_chart(
-        pdk.Deck(
-            layers=[layer],
-            initial_view_state=view,
-            tooltip=tooltip
-        )
+        총 주차면 : {row['총 주차면']}면
+        """
+
+        folium.Marker(
+            location=[row["위도"], row["경도"]],
+            popup=folium.Popup(popup, max_width=350),
+            tooltip=row["주차장명"],
+            icon=folium.Icon(
+                color="blue",
+                icon="info-sign"
+            )
+        ).add_to(m)
+
+    st.subheader("🗺 공영주차장 지도")
+
+    st_folium(
+        m,
+        width=1200,
+        height=700
     )
