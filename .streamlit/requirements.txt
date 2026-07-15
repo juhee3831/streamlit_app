@@ -4,3 +4,4 @@ pydeck
 geopy
 openpyxl
 folium
+streamlit-folium
