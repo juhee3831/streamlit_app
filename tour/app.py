@@ -1,53 +1,140 @@
 import streamlit as st
 import requests
 import random
+from datetime import datetime
 
-# Streamlit Cloud Secrets에서 API 키 불러오기
+st.set_page_config(
+    page_title="대한민국 축제 추천",
+    page_icon="🎉",
+    layout="wide"
+)
+
+st.title("🎉 대한민국 축제 추천 서비스")
+st.caption("한국관광공사 TourAPI")
+
+# Streamlit Secrets
 API_KEY = st.secrets["TOUR_API_KEY"]
 
-URL = "https://apis.data.go.kr/B551011/KorService1/searchFestival1"
+URL = "https://apis.data.go.kr/B551011/KorService2/searchFestival2"
 
-st.title("🎲 오늘의 랜덤 축제")
+today = datetime.today().strftime("%Y%m%d")
 
 params = {
     "serviceKey": API_KEY,
     "MobileOS": "ETC",
     "MobileApp": "FestivalApp",
     "_type": "json",
-    "eventStartDate": "20260101",
-    "numOfRows": 100,
-    "pageNo": 1,
+    "numOfRows": "100",
+    "pageNo": "1",
+    "eventStartDate": today
 }
 
-try:
-    response = requests.get(URL, params=params, timeout=10)
-    response.raise_for_status()
+
+@st.cache_data(ttl=3600)
+def get_festivals():
+    response = requests.get(URL, params=params, timeout=20)
+
+    if response.status_code != 200:
+        st.error(f"HTTP 오류 : {response.status_code}")
+        st.text(response.text)
+        return []
 
     data = response.json()
 
-    items = data["response"]["body"]["items"].get("item", [])
+    body = data["response"]["body"]
 
-    if not items:
-        st.warning("현재 조회 가능한 축제가 없습니다.")
+    if body["items"] == "":
+        return []
 
-    elif st.button("🎲 랜덤 축제 추천"):
-        festival = random.choice(items)
+    return body["items"]["item"]
 
-        st.subheader(f"🎉 {festival['title']}")
 
-        if festival.get("firstimage"):
-            st.image(festival["firstimage"], use_container_width=True)
+festivals = get_festivals()
 
-        st.write(f"📍 **주소** : {festival.get('addr1', '정보 없음')}")
-        st.write(f"📅 **기간** : {festival.get('eventstartdate')} ~ {festival.get('eventenddate')}")
+if not festivals:
+    st.warning("축제 정보가 없습니다.")
+    st.stop()
 
-        st.success(random.choice([
-            "사진 찍기 좋은 축제입니다! 📸",
-            "데이트 코스로 추천합니다. ❤️",
-            "가족과 함께 즐기기 좋아요. 👨‍👩‍👧",
-            "먹거리가 풍부한 축제입니다. 🍜",
-            "올해 인기 축제로 기대를 모으고 있습니다. 🔥",
-        ]))
+# ------------------
 
-except Exception as e:
-    st.error(f"오류가 발생했습니다.\n\n{e}")
+keyword = st.text_input("🔍 축제 검색")
+
+filtered = festivals
+
+if keyword:
+
+    filtered = [
+        x for x in festivals
+        if keyword.lower() in x["title"].lower()
+    ]
+
+st.write(f"총 {len(filtered)}개의 축제를 찾았습니다.")
+
+st.divider()
+
+# 랜덤 추천
+
+if st.button("🎲 오늘의 랜덤 축제 추천"):
+
+    festival = random.choice(filtered)
+
+    st.success(f"오늘 추천 축제는 **{festival['title']}** 입니다!")
+
+    if festival.get("firstimage"):
+        st.image(festival["firstimage"], width=700)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.write("📍 주소")
+        st.write(festival.get("addr1", "-"))
+
+    with col2:
+        st.write("📅 기간")
+        st.write(
+            festival.get("eventstartdate", "-"),
+            "~",
+            festival.get("eventenddate", "-")
+        )
+
+    st.info(random.choice([
+        "📸 사진 찍기 좋은 축제입니다.",
+        "❤️ 커플 여행 추천!",
+        "👨‍👩‍👧 가족 여행 추천!",
+        "🍜 먹거리가 풍부한 축제입니다.",
+        "🔥 올해 인기 축제입니다."
+    ]))
+
+st.divider()
+
+st.subheader("📋 축제 목록")
+
+for festival in filtered:
+
+    with st.container():
+
+        col1, col2 = st.columns([1,3])
+
+        with col1:
+
+            if festival.get("firstimage"):
+                st.image(festival["firstimage"], width=170)
+
+        with col2:
+
+            st.markdown(f"### {festival['title']}")
+
+            st.write(
+                f"📅 {festival.get('eventstartdate','')} ~ {festival.get('eventenddate','')}"
+            )
+
+            st.write(
+                f"📍 {festival.get('addr1','주소 없음')}"
+            )
+
+            if festival.get("tel"):
+                st.write(
+                    f"☎ {festival['tel']}"
+                )
+
+        st.divider()
