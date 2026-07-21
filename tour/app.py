@@ -2,12 +2,12 @@ import streamlit as st
 import requests
 import random
 
-# Streamlit Cloud에서는 secrets.toml에 저장
+# Streamlit Cloud Secrets에서 API 키 불러오기
 API_KEY = st.secrets["TOUR_API_KEY"]
 
-st.title("🎲 오늘의 랜덤 축제")
+URL = "https://apis.data.go.kr/B551011/KorService1/searchFestival1"
 
-url = "https://apis.data.go.kr/B551011/KorService1/searchFestival1"
+st.title("🎲 오늘의 랜덤 축제")
 
 params = {
     "serviceKey": API_KEY,
@@ -16,45 +16,38 @@ params = {
     "_type": "json",
     "eventStartDate": "20260101",
     "numOfRows": 100,
-    "pageNo": 1
+    "pageNo": 1,
 }
 
-response = requests.get(url, params=params)
-
-if response.status_code == 200:
+try:
+    response = requests.get(URL, params=params, timeout=10)
+    response.raise_for_status()
 
     data = response.json()
 
-    items = data["response"]["body"]["items"]["item"]
+    items = data["response"]["body"]["items"].get("item", [])
 
-    if st.button("🎲 랜덤 추천 받기"):
+    if not items:
+        st.warning("현재 조회 가능한 축제가 없습니다.")
 
+    elif st.button("🎲 랜덤 축제 추천"):
         festival = random.choice(items)
 
-        st.success(f"오늘의 추천 축제는 **{festival['title']}** 입니다!")
+        st.subheader(f"🎉 {festival['title']}")
 
         if festival.get("firstimage"):
             st.image(festival["firstimage"], use_container_width=True)
 
-        st.write("📍 주소")
-        st.write(festival.get("addr1", "정보 없음"))
+        st.write(f"📍 **주소** : {festival.get('addr1', '정보 없음')}")
+        st.write(f"📅 **기간** : {festival.get('eventstartdate')} ~ {festival.get('eventenddate')}")
 
-        st.write("📅 행사 시작")
-        st.write(festival.get("eventstartdate"))
+        st.success(random.choice([
+            "사진 찍기 좋은 축제입니다! 📸",
+            "데이트 코스로 추천합니다. ❤️",
+            "가족과 함께 즐기기 좋아요. 👨‍👩‍👧",
+            "먹거리가 풍부한 축제입니다. 🍜",
+            "올해 인기 축제로 기대를 모으고 있습니다. 🔥",
+        ]))
 
-        st.write("📅 행사 종료")
-        st.write(festival.get("eventenddate"))
-
-        reasons = [
-            "사진 찍기 좋은 축제입니다 📸",
-            "가족과 함께 가기 좋아요 👨‍👩‍👧",
-            "커플 데이트 코스로 추천 ❤️",
-            "먹거리가 다양한 축제입니다 🍜",
-            "SNS에서 인기 있는 축제입니다 🔥",
-            "혼자 여행해도 즐길 수 있어요 🚶"
-        ]
-
-        st.info(random.choice(reasons))
-
-else:
-    st.error("축제 정보를 가져오지 못했습니다.")
+except Exception as e:
+    st.error(f"오류가 발생했습니다.\n\n{e}")
